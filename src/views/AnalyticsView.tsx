@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api, qs } from "../lib/api";
 import { useResource } from "../lib/hooks";
 import { Icon } from "../lib/icons";
-import { integer, percent, usd } from "../lib/format";
+import { fullDate, integer, percent, usd } from "../lib/format";
 import { loadAnalyticsPrefs, saveAnalyticsPrefs } from "../lib/analyticsPrefs";
 import type {
   AnalyticsReport,
@@ -138,6 +138,22 @@ export function AnalyticsView({
     [query, ready, mode]
   );
 
+  // How far back history and transcripts reach is a fact about the corpus, not
+  // the window, and only `/claude-analytics` carries it. The two report modes
+  // already hold it; Insights reads a different endpoint, so it asks for the
+  // report once per project filter — without `from`/`to`, which the two dates
+  // ignore — rather than leaving the note out of one mode in three.
+  const reachQuery = qs({ project: project || undefined, tz: TZ });
+  const reach = useResource<AnalyticsReport | undefined>(
+    (signal) =>
+      mode === "insights"
+        ? api.get<AnalyticsReport>(`/claude-analytics${reachQuery}`, signal)
+        : Promise.resolve(undefined),
+    [reachQuery, mode]
+  );
+  const reachSummary =
+    mode === "insights" ? reach.data?.summary : report.data?.report.summary;
+
   const projects = useResource<ClaudeProject[] | null>(
     (signal) => api.get<ClaudeProject[] | null>("/claude-sessions/projects", signal),
     []
@@ -249,6 +265,9 @@ export function AnalyticsView({
             onClick={() => {
               active.reload();
               if (wantsCompare) previous.reload();
+              // In Insights the history note has its own read, and a rescan is
+              // exactly what can move its dates.
+              if (mode === "insights") reach.reload();
             }}
           >
             <Icon name="refresh" size={14} />
@@ -272,6 +291,13 @@ export function AnalyticsView({
           </div>
         )}
 
+        {reachSummary?.history_since && (
+          <HistoryNote
+            historySince={reachSummary.history_since}
+            transcriptsSince={reachSummary.transcripts_since}
+          />
+        )}
+
         {!ready ? (
           <div className="a-state">{period.label}</div>
         ) : error && !hasData ? (
@@ -280,7 +306,13 @@ export function AnalyticsView({
             title="Could not load analytics"
             text={error}
             action={
-              <button className="btn" onClick={() => active.reload()}>
+              <button
+                className="btn"
+                onClick={() => {
+                  active.reload();
+                  if (mode === "insights") reach.reload();
+                }}
+              >
                 Try again
               </button>
             }
@@ -321,6 +353,36 @@ export function AnalyticsView({
           </aside>
         </>
       )}
+    </div>
+  );
+}
+
+/* --- History note -------------------------------------------------------- */
+
+/**
+ * One line saying how far back the numbers go versus how far back a session
+ * can still be opened (#716). Rendered only once something has expired — until
+ * then the two dates are one date and there is nothing to explain.
+ */
+function HistoryNote({
+  historySince,
+  transcriptsSince,
+}: {
+  historySince: string;
+  /** Absent when no transcript remains on disk. */
+  transcriptsSince: string | undefined;
+}) {
+  const history = fullDate(historySince);
+  const transcripts = transcriptsSince ? fullDate(transcriptsSince) : undefined;
+  return (
+    <div className="a-note a-history">
+      {transcripts === undefined
+        ? `History goes back to ${history}. No transcripts remain on disk.`
+        : transcripts === history
+          ? // The expired session is not the oldest one, so "older sessions"
+            // would name sessions that do not exist.
+            `History and transcripts both go back to ${history}. Sessions whose transcript has expired keep their numbers but can no longer be opened.`
+          : `History goes back to ${history}. Transcripts go back to ${transcripts}; older sessions keep their numbers but can no longer be opened.`}
     </div>
   );
 }
