@@ -25,7 +25,7 @@
     gojson.rs    Go-compatible JSON encoder — read this before porting anything
     gotime.rs    Go's time.Time on the wire
     db.rs        the SQLite handles: read-only for reads, read-write for writes
-    migrate.rs   46 migrations, embedded from parity/ — applied at startup
+    migrate.rs   47 migrations, embedded from parity/ — applied at startup
                  since #278; verify() still guards every write
     pricing_seed.rs the built-in pricing catalog seed, run at startup (#278) —
                  embeds internal/pricing/catalog.json, pinned to
@@ -125,7 +125,8 @@
                  the lookup that makes continue idempotent, and the three
                  `continued_from_*` columns migration 37 adds (#490)
       delete.rs  DELETE /{id} and DELETE with {before}: only an expired
-                 session, and the one cascade over the seven tables (#711)
+                 session, and the one cascade over the seven tables (#711);
+                 `prune`, the scan's retention step over that cascade (#712)
       update.rs  the rename and the favourite — the only two columns here the
                  user typed, and the only ones the scanner never writes
       detail.rs  one session re-read from its transcript, patched from the cache
