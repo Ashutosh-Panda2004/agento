@@ -14,6 +14,7 @@ import type {
   JobDelivery,
   JobHistory,
   JobStatus,
+  ScheduledTask,
 } from "../lib/types";
 import { describeError, usePoll, useResource } from "../lib/hooks";
 import {
@@ -183,6 +184,22 @@ export function JobsView({
 
   // A running job's output and timing land after the row was first read.
   usePoll(detail.reload, POLL_MS, job?.status === "running");
+
+  // The run's task, for the two refused-event counts (#692). They are the
+  // task's totals: a refused event writes no `job_history` row, so no run owns
+  // one. A deleted task fails this read, and the rows are then left out. It
+  // is re-read for each focused run, so stepping through one task's runs does
+  // not keep the first answer.
+  const taskId = job?.task_id ?? "";
+  const task = useResource<ScheduledTask | null>(
+    (signal) => (taskId ? api.get(`/tasks/${taskId}`, signal) : Promise.resolve(null)),
+    [taskId, focusedId]
+  );
+  // `useResource` keeps the previous answer across a failed read and through
+  // the render in which `taskId` changes, so it is taken only when it is about
+  // this run's task and the last read of it succeeded.
+  const jobTask =
+    task.data && task.data.id === taskId && !task.error ? task.data : null;
 
   /**
    * A hand-off from a task's *Recent runs* (#542): select that run.
@@ -511,6 +528,18 @@ export function JobsView({
                       {job.finished_at ? dateTime(job.finished_at) : "—"}
                     </InspRow>
                     <InspRow label="Duration">{runDuration(job)}</InspRow>
+                    {jobTask && (
+                      <>
+                        <InspRow label="Task's dropped events">
+                          <span className="tnum">{jobTask.dropped_event_count}</span>
+                        </InspRow>
+                        <InspRow label="Task's rate-limited events">
+                          <span className="tnum">
+                            {jobTask.rate_limited_event_count}
+                          </span>
+                        </InspRow>
+                      </>
+                    )}
                   </InspGroup>
 
                   <InspGroup title="Tokens">
