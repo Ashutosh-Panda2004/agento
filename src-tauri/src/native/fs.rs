@@ -395,6 +395,7 @@ mod tests {
     /// relative, and the read fails — which is what Go answers.
     #[test]
     fn only_a_bare_tilde_and_the_empty_path_mean_home() {
+        let _env = crate::paths::tests::env_lock();
         let home = paths::home().expect("a home directory");
         let home = home.to_string_lossy().into_owned();
 
@@ -488,6 +489,29 @@ mod tests {
             WriteError::BadRequest(format!("cannot read directory: {path}"))
         );
         assert_eq!(err.status(), super::super::StatusCode::BAD_REQUEST);
+    }
+
+    /// With no home directory to resolve against, `""` and `"~"` cannot
+    /// be listed at all: **500** — the failure is the server's own, not
+    /// the request's (#669).
+    #[test]
+    fn no_home_directory_is_a_500() {
+        let _env = crate::paths::tests::env_lock();
+        let _home_var = crate::paths::tests::EnvVar::unset("HOME");
+        let _profile_var = crate::paths::tests::EnvVar::unset("USERPROFILE");
+
+        for raw in ["", "~"] {
+            let err = list(raw).unwrap_err();
+            assert_eq!(
+                err,
+                WriteError::Internal("could not determine home directory".to_string()),
+                "{raw:?}"
+            );
+            assert_eq!(
+                err.status(),
+                super::super::StatusCode::INTERNAL_SERVER_ERROR
+            );
+        }
     }
 
     /// Field order is the Go struct's declaration order.
